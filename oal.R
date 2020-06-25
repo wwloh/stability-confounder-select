@@ -89,32 +89,3 @@ coeff_XA[,tt]
 
 return(list("Data"=Data,"coeff_XA"=coeff_XA,"tt"=tt, "ATE"=ATE[tt]))
 }
-
-# function to calculate a p-value using a parametric bootstrap with OAL
-One_pv_paraboot_OAL <- function(mydata,ps_fit,n_resample) {
-  # ps_fit = estimated propensity scores from OAL
-  pA1_hat.obs <- ps_fit
-  ts.obs <- One_IPWest(y_ipw=mydata$Y,a_ipw=mydata$treat,pl_ipw=pA1_hat.obs)
-  ts <- sapply(1:n_resample, function(x) {
-    xa <- rbinom(n,1,pA1_hat.obs)
-    xa.dat <- mydata
-    xa.dat$A <- xa
-    xa.var.list <- names(mydata)[grep("L[.]",names(mydata))]
-    xa.res_oal <- OneData_OAL(xa.var.list,xa.dat)
-    pA1_hat.xa <- xa.res_oal$Data[,paste("f.pA",names(xa.res_oal$tt),sep="")]
-    ts.xa <- One_IPWest(y_ipw=mydata$Y,a_ipw=xa,pl_ipw=pA1_hat.xa)
-    return(ts.xa)
-  })
-  pv <- mean(abs(ts) >= abs(ts.obs)-.Machine$double.eps*1e2, na.rm=TRUE)
-  
-  ## return min and max weights
-  ipw.obs <- mydata$treat/pA1_hat.obs + (1-mydata$treat)/(1-pA1_hat.obs)
-  ## return asymptotic p-value
-  gee.obj <- geeglm(Y~treat, data=mydata, weights=ipw.obs, id=i,
-                    corstr="independence")
-  pv.gee <- summary(gee.obj)$coef["treat",4]
-  
-  res <- c(pv,pv.gee,range(ipw.obs))
-  names(res) <- c("paraboot","gee","ipw.para.min","ipw.para.max")
-  return(res)
-}

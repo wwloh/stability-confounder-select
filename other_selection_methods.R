@@ -22,6 +22,10 @@ OneData_Boruta <- function(mydata,var.list) {
   
   if (sum(select.boruta)>0) {
     select.boruta <- names(fitY.boruta$finalDecision)[select.boruta]
+    select.boruta <- grep(pattern="L[.]",select.boruta,value=TRUE)
+    if (length(select.boruta)==0) {
+      select.boruta <- "1" # intercept only
+    }
   } else {
     select.boruta <- "1" # intercept only
   }
@@ -35,7 +39,7 @@ OneData_CovSel <- function(mydata,var.list,
                    type = cov.sel.type, alg = cov.sel.alg, trace = 0),
     error=function(cond) return(NA))
   if (any(is.na(cov.sel.out))) {
-    select.CovSel <- NA
+    select.CovSel <- "1" # intercept only
   } else {
     if (cov.sel.alg==1) {
       select.CovSel <- var.list[(var.list %in% out$Q.0) |
@@ -53,12 +57,17 @@ OneData_CovSel <- function(mydata,var.list,
 
 OneData_ABE <- function(mydata,var.list) {
   data.ABE <<- mydata[,c("Y","treat",var.list)]
-  fitY.ABE <<- lm(Y~.,x=TRUE,y=TRUE,data=data.ABE)
-  
+  Y.binary <- all(0<=data.ABE$Y & data.ABE$Y<=1)
+  if (Y.binary) {
+    fitY.ABE <<- glm(Y~.,family=binomial(link = "logit"),
+                     x=TRUE,y=TRUE,data=data.ABE)
+  } else {
+    fitY.ABE <<- lm(Y~.,x=TRUE,y=TRUE,data=data.ABE)
+  }
   abe.fit <- abe(fit=fitY.ABE,data=data.ABE,include="treat",
-                 exp.beta=FALSE,active=var.list,verbose=FALSE)
+                 exp.beta=Y.binary,active=var.list,verbose=FALSE)
   select.ABE <- names(abe.fit$coefficients)
-  select.ABE <- select.ABE[grepl(pattern="L[.]",select.ABE)]
+  select.ABE <- grep(pattern="L[.]",select.ABE,value=TRUE)
   
   if (length(select.ABE)>0) {
     select.ABE <- paste0("L.",sort(as.integer(gsub("L[.]","",select.ABE))))
@@ -76,7 +85,7 @@ OneData_SignifReg <- function(mydata,var.list) {
   lm.SignifReg <- SignifReg(fitY.SignifReg, scope=as.formula(
     paste("~.+",paste(c("treat",var.list),collapse="+"))))
   select.SignifReg <- names(lm.SignifReg$coefficients)
-  select.SignifReg <- select.SignifReg[grepl(pattern="L[.]",select.SignifReg)]
+  select.SignifReg <- grep(pattern="L[.]",select.SignifReg,value=TRUE)
   
   if (length(select.SignifReg)>0) {
     select.SignifReg <- paste0("L.",sort(
@@ -87,35 +96,16 @@ OneData_SignifReg <- function(mydata,var.list) {
   return(select.SignifReg)
 }
 
-OneData_BayesPen <- function(mydata,var.list) {
-  # example from http://anderwilson.github.io/BayesPen/
-  y.bp <- as.formula(paste0("Y~",paste(c("treat",var.list),collapse="+"),"-1"))
-  fit1.bp <- lm(y.bp,data=mydata)
-  betahat.bp <- coef(fit1.bp)
-  cov.bp <- vcov(fit1.bp)
-  a.bp <- as.formula(paste0("treat~",paste(var.list,collapse="+"),"-1"))
-  gammahat.bp <- coef(lm(a.bp, data=mydata))
-  fit.BayesPen <- BayesPen(beta=betahat.bp, beta_cov=cov.bp, 
-                           confounder.weights=c(0,gammahat.bp), force=1)
-  select.BayesPen <- names(fit.BayesPen$order.joint) # ordered covariates
-  return(select.BayesPen)
-  
-  # refit <- BayesPen.refit(y = mydata$Y, 
-  #                         x = as.matrix(mydata[,c("treat",var.list)]),
-  #                         fit.BayesPen)
-  # refit$coefs
-  
-}
-
 OneData_BCEE <- function(mydata,var.list) {
-  #Using ABCEE to estimate the causal exposure effect
-  if (min(mydata$Y)<.Machine$double.eps &&
-      max(mydata$Y)>1-.Machine$double.eps) {
+  Y.binary <- all(0<=mydata$Y & mydata$Y<=1)
+  # Using ABCEE to estimate the causal exposure effect
+  if (Y.binary) {
     results <- ABCEE(X=mydata$treat, Y=mydata$Y, U=as.matrix(mydata[,var.list]),
                      family.X=binomial(link = "logit"),
                      omega = sqrt(nrow(mydata))*500)
   } else {
     results <- ABCEE(X=mydata$treat, Y=mydata$Y, U=as.matrix(mydata[,var.list]),
+                     family.X=gaussian(link = "identity"),
                      omega = sqrt(nrow(mydata))*500)
   }
   # Tail prob. of 0 in the posterior dist. of the exposure effect:
@@ -128,10 +118,13 @@ OneData_BCEE <- function(mydata,var.list) {
 }
 
 OneData_bacr <- function(mydata,var.list) {
+  Y.binary <- all(0<=mydata$Y & mydata$Y<=1)
+  bac.fam <- ifelse(Y.binary,"binomial","gaussian")
+  
   ##### run BAC  #################
   result = bac(data=mydata, exposure="treat", outcome="Y", 
                confounders=var.list,
-               interactors=NULL, familyX="binomial", familyY="gaussian",
+               interactors=NULL, familyX="binomial", familyY=bac.fam,
                num_its=5000,burnM=500,burnB=500,thin=10)
   # Tail prob. of 0 in the posterior dist. of the exposure effect:
   pvalue.bacr <- mean(result$ACE>=0)
@@ -154,35 +147,38 @@ OneData_ctmle <- function(mydata,var.list,pvalues=TRUE) {
   Q <- cbind(rep(mean(mydata$Y[mydata$treat==0]), nrow(mydata)), 
              rep(mean(mydata$Y[mydata$treat==1]), nrow(mydata)))
   
-  ctmle_discrete_fit1 <- ctmleDiscrete(Y = mydata$Y, A = mydata$treat,
-                                       W = mydata[,var.list],
-                                       Q = Q, 
+  Y <- mydata$Y
+  A <- mydata$treat
+  W <- mydata[,var.list]
+  
+  ## discrete fit =============================================================
+  ctmle_discrete_fit1 <- ctmleDiscrete(Y = Y, A = A, W = W, Q = Q,
                                        preOrder = FALSE, detailed = TRUE)
   
-  glmnet_fit <- cv.glmnet(y=mydata$treat, x = as.matrix(mydata[,var.list]),
+  glmnet_fit <- cv.glmnet(y = A, x = as.matrix(W),
                           family = 'binomial', nlambda = 20)
   
+  ## algorithm 1 ==============================================================
   lambdas <- glmnet_fit$lambda[
     (which(glmnet_fit$lambda==glmnet_fit$lambda.min)):length(glmnet_fit$lambda)]
   
-  ctmle_fit1 <- ctmleGlmnet(Y = mydata$Y, A = mydata$treat,
-                            W = mydata[,var.list],
-                            Q = Q, lambdas = lambdas, ctmletype=1, 
-                            family="gaussian",gbound=0.025, V=5)
+  Y.binary <- all(0<=Y & Y<=1)
+  ctmleGlmnet.fam <- ifelse(Y.binary,"binomial","gaussian")
   
-  ctmle_fit2 <- ctmleGlmnet(Y = mydata$Y, A = mydata$treat,
-                            W = mydata[,var.list],
-                            Q = Q, lambdas = lambdas, ctmletype=2, 
-                            family="gaussian",gbound=0.025, V=5)
-  
+  ctmle_fit1 <- ctmleGlmnet(Y = Y, A = A, W = W, Q = Q,
+                            lambdas = lambdas, ctmletype=1,
+                            family=ctmleGlmnet.fam, gbound=0.025, V=5)
+
   ctmle_res <- rbind(
     c(ctmle_discrete_fit1$est,sqrt(ctmle_discrete_fit1$var.psi)),
-    c(ctmle_fit1$est,sqrt(ctmle_fit1$var.psi)),
-    c(ctmle_fit2$est,sqrt(ctmle_fit2$var.psi)))
-  rownames(ctmle_res) <- c("nolasso","lasso1","lasso2")
+    c(ctmle_fit1$est,sqrt(ctmle_fit1$var.psi))
+    )
+  rownames(ctmle_res) <- c("nolasso","lasso")
   colnames(ctmle_res) <- c("est","se")
   if (pvalues==TRUE) {
-    ctmle_pv <- c(ctmle_discrete_fit1$pvalue,ctmle_fit1$pvalue,ctmle_fit2$pvalue)
+    ctmle_pv <- c(ctmle_discrete_fit1$pvalue,
+                  ctmle_fit1$pvalue
+                  )
     ctmle_res <- cbind("pv"=ctmle_pv,ctmle_res)
   }
   return(ctmle_res)
