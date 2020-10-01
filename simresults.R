@@ -182,7 +182,7 @@ sel_ate <- sim_res_all[
   by=list(n,q,p,z,y)]
 meth_names <- unlist(lapply(strsplit(names(sel_ate),"treat."),"[",2))
 meth_names <- unlist(strsplit(grep(pattern="[.]se",meth_names,value=TRUE),"[.]se"))
-meth_names <- meth_names[grepl("hdm.ds",meth_names) | grepl("ctmle",meth_names)]
+# meth_names <- meth_names[grepl("hdm.ds",meth_names) | grepl("ctmle",meth_names)]
 meth_names
 sel.summ <- NULL
 for (mm in 1:length(meth_names)) {
@@ -202,13 +202,15 @@ for (mm in 1:length(meth_names)) {
   
   # NAs
   sim_est_meth.na <- sim_res_all[,lapply(.SD,function(x) mean(is.na(x))),
-                                 .SDcols=meth_names[mm],by=list(n,q,p,z,y)]
+                                 .SDcols=grep(meth_names[mm],names(sel_ate),value=TRUE)[1],
+                                 by=list(n,q,p,z,y)]
   setnames(sim_est_meth.na,ncol(sim_est_meth.na),"nas")
   setkey(sim_est_meth.na)
   
   # p-values
   sim_est_meth.pv <- sim_res_all[,lapply(.SD,function(x) mean(x<=0.05,na.rm=TRUE)),
-                                 .SDcols=meth_names[mm],by=list(n,q,p,z,y)]
+                                 .SDcols=grep(meth_names[mm],names(sim_res_all),value=TRUE)[1],
+                                 by=list(n,q,p,z,y)]
   setnames(sim_est_meth.pv,ncol(sim_est_meth.pv),"pv")
   setkey(sim_est_meth.pv)
   

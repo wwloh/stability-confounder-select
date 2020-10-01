@@ -8,7 +8,7 @@ lalonde.dt <- data.table(sapply(lalonde, as.numeric))
 setkey(lalonde.dt)
 
 # covariates
-l <- lalonde.dt[,2:(ncol(lalonde.dt)-1)]
+l <- lalonde.dt[,!(colnames(lalonde.dt) %in% c("treat","re78")),with=FALSE]
 Lnames <- data.frame(cbind("L.idx"=1:ncol(l),"L.names"=names(l)))
 l <- as.data.frame(l)
 colnames(l) <- NULL
