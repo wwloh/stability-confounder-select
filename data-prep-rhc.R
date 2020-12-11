@@ -1,5 +1,5 @@
 # observational study
-Hmisc::getHdata(rhc)
+Hmisc::getHdata(rhc,where="https://hbiostat.org/data/repo/")
 dim(rhc) # number of obs
 summary(rhc$swang1) # number of treated vs. untreated
 rhc <- rhc[,names(rhc)[order(names(rhc))]] # order column names alphabetically
